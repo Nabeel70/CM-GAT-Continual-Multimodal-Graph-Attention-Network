@@ -84,10 +84,3 @@ python train.py --use_continual --lambda_ewc 1000.0
 ```
 
 ---
-
-## 🗺️ Future Roadmap
-
-*   **Real HCP Data Integration:** Finalize the `HCPConnectomeDataset` loader for the full 1151-subject Human Connectome Project dataset (Glasser 360-node parcellation).
-*   **Infant Brain Application:** Adapt the Continual Learning pipeline for the **UNC/BCP (Baby Connectome Project)** dataset.
-*   **Domain Adaptation:** Implement domain adaptation layers to handle missing contrasts (e.g., incomplete functional or structural scans) commonly found in neonatal MRI.
-*   **Interpretability Expansion:** Export the highest attention sub-graphs directly to `.csv` for downstream neuroscientific network analysis.
