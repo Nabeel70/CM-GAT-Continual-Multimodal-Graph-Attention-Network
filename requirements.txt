@@ -1,0 +1,8 @@
+torch>=2.0
+torch-geometric>=2.5
+torch-scatter
+torch-sparse
+numpy
+scipy
+scikit-learn
+tqdm
