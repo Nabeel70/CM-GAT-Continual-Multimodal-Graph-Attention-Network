@@ -52,6 +52,7 @@ from tqdm import tqdm
 from dataset import MockConnectomeDataset, generate_mock_subject
 from model import CMGAT, print_model_summary
 from continual_memory import ContinualLearningManager
+from visualize import generate_all_visualizations
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -378,6 +379,7 @@ def evaluate(
     metrics = compute_all_metrics(y_true, y_pred)
     metrics['y_true'] = y_true
     metrics['y_pred'] = y_pred
+    metrics['mse'] = float(np.mean((y_true - y_pred) ** 2))
 
     return metrics
 
@@ -403,6 +405,7 @@ def stratified_cv(
     lambda_ewc: float = 1000.0,
     patience: int = 15,
     verbose: bool = True,
+    results_dir: str = 'results',
 ) -> dict:
     """
     Stratified K-Fold Cross-Validation for CM-GAT.
@@ -477,6 +480,13 @@ def stratified_cv(
     all_oof_true = []
     all_oof_pred = []
 
+    # ─── Tracking for visualizations ──────────────────────────────
+    all_train_losses = []   # Contiguous across folds
+    all_val_losses = []     # Contiguous across folds
+    fold_boundaries = []    # Epoch index where each new fold starts
+    last_model = None       # Reference to the last trained model
+    last_val_data = None    # Reference to last fold's validation data
+
     print("\n" + "=" * 70)
     print(f"STRATIFIED {n_folds}-FOLD CROSS-VALIDATION")
     print(f"  Subjects: {len(dataset_list)}")
@@ -526,6 +536,10 @@ def stratified_cv(
         best_model_state = None
         epochs_without_improvement = 0
 
+        # Record fold boundary for visualization
+        if fold_idx > 0:
+            fold_boundaries.append(len(all_train_losses))
+
         epoch_pbar = tqdm(range(epochs), desc=f"Fold {fold_idx+1}", disable=not verbose)
         for epoch in epoch_pbar:
             # Train
@@ -535,6 +549,10 @@ def stratified_cv(
 
             # Evaluate
             val_metrics = evaluate(model, val_loader, device)
+
+            # Track losses for visualization
+            all_train_losses.append(train_metrics['loss'])
+            all_val_losses.append(val_metrics['mse'] if 'mse' in val_metrics else train_metrics['mse'])
 
             # Update LR schedule
             scheduler.step()
@@ -584,6 +602,10 @@ def stratified_cv(
         print(f"    Pearson r = {fold_result['Pearson_r']:.4f}")
         print(f"    nRMSD   = {fold_result['nRMSD']:.4f}")
 
+        # Keep reference to last model and validation data for visualization
+        last_model = model
+        last_val_data = val_data
+
         # Continual learning: consolidate this fold's knowledge
         if cl_manager is not None:
             cl_manager.consolidate_task(model, train_loader, device, train_data)
@@ -609,6 +631,24 @@ def stratified_cv(
     print(f"\n  Paper Baseline (CPM + Elastic Net):")
     print(f"    R² = 0.12, Pearson r = 0.35, nRMSD = 0.94")
     print("=" * 70)
+
+    # ─── Auto-generate visualizations ────────────────────────────
+    if last_model is not None and len(all_train_losses) > 0:
+        # Compute validation MSE losses for the val_losses curve
+        # (evaluate doesn't return raw MSE, so we use the training MSE
+        # as a proxy for the val curve — both are tracked per epoch)
+        generate_all_visualizations(
+            train_losses=all_train_losses,
+            val_losses=all_val_losses,
+            fold_boundaries=fold_boundaries,
+            y_true=all_oof_true,
+            y_pred=all_oof_pred,
+            model=last_model,
+            sample_data=last_val_data[0] if last_val_data else dataset_list[0],
+            device=device,
+            results_dir=results_dir,
+            num_nodes=dataset_list[0].num_nodes,
+        )
 
     return {
         'fold_metrics': fold_metrics,
@@ -683,6 +723,8 @@ Examples:
                         help='L2 attention regularization (default: 1e-5)')
     parser.add_argument('--patience', type=int, default=15,
                         help='Early stopping patience (default: 15)')
+    parser.add_argument('--results_dir', type=str, default='results',
+                        help='Directory to save visualization plots (default: results)')
 
     # Cross-validation
     parser.add_argument('--folds', type=int, default=5,
@@ -771,6 +813,7 @@ Examples:
         lambda_ewc=args.lambda_ewc,
         patience=args.patience,
         verbose=True,
+        results_dir=args.results_dir,
     )
 
     print("\n✓ CM-GAT training pipeline completed successfully!")
